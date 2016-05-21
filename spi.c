@@ -18,7 +18,7 @@ void initSPI()
     SPI1_CR1 = SPI1_CR2 = 0;
     SPI1_CR1 |= BIT0; // set CPHA to ensure MOSI is low when idle  
     SPI1_CR1 |= BIT2; // select master mode
-    SPI1_CR1 |= (4 << 3); // select divider of 32.  64MHz/16 = 2MHz.  3 bits per WS2812 bit so: 0.66 Million WSbits/second : Within range of  1.53MHz to 540kHz    
+    SPI1_CR1 |= (3 << 3); // select divider of 16.  64MHz/16 = 4MHz.  3 bits per WS2812 bit so: 1.33 Million WSbits/second : Within range of  1.53MHz to 540kHz    
     SPI1_CR1 |= BIT8+BIT9; // select software slave management and drive SSI high (not relevant in TI mode and not output to pins)
     SPI1_CR2 |= (7 << 8); // select 8 bit data transfer size   
     SPI1_CR2 |= BIT1; // enable transmit DMA
