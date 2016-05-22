@@ -3,13 +3,11 @@
 #include "stm32f303xx.h"
 #include "fft.h"
 #define LED_COUNT 16
-#define BLOCKSIZE (2 * LED_COUNT)
 #define Fs 32768
 unsigned SysTickCounter=0;
-float InputBuffer1[BLOCKSIZE];
-float InputBuffer2[BLOCKSIZE];
-float Cplx[BLOCKSIZE];
-float *InputBuffer=InputBuffer1;
+short InputBuffer[SIZE];
+float Real[SIZE];
+float Cplx[SIZE];
 void configPins();
 void initClock();
 void delay(unsigned dly);
@@ -19,12 +17,17 @@ void latchWS2812B();
 void initSysTick();
 void initADC();
 int readADC();
+void tic(void);
+void toc(void);
 volatile int DataReady;
 uint8_t DMABuffer[LED_COUNT * 9]; // This will be used as a DMA Buffer for the SPI bus
 
 int main()
 {
-	unsigned Index=0;		
+	unsigned Index=0;
+	unsigned AverageIndex;
+	unsigned Average;
+	unsigned FrequencyComponent = 0;		
 	initClock();
 	initSysTick();
 	initUART(9600);  // Set serial port to 9600,n,8,1
@@ -37,34 +40,48 @@ int main()
 		
 		// Output a long serial message to ensure interrupts are 
 		// happening at the same time as DMA transfers
-		eputs("ADC: ");  	    
-		//eputShort(InputBuffer[0]);
-		eputLong(ADC1_CR);
-		eputs("\r\n");  	    
-		
+		eputs("SysTickCounter: ");  	    
+		eputLong(SysTickCounter);		
+		eputs("\r\n");  	    		
 		while(usart_tx_busy()); // wait for last Serial TX to finish
 		sleep(); // save power when idle
 		if (DataReady)  // new block of data is ready
 		{
-			if (InputBuffer == InputBuffer1) // Which one is ready?
+			tic();
+			for (Index = 0; Index < SIZE; Index++)
 			{
-				for (Index = 0; Index < LED_COUNT-1; Index++)
-				{
-					writeDMABuffer(Index,InputBuffer2[Index]);
-				}
-				fft(BLOCKSIZE,InputBuffer2,Cplx);
-				writeDMABuffer(15,SysTickCounter);
+					Real[Index]=InputBuffer[Index];
+					Cplx[Index]=0; 
+			}					
+			// Do FFT
+			fft(SIZE,Real,Cplx);
+			// Work out power spectrum
+			// Only need to do half of it - no need to calculate
+			// beyond Nyquist frequency.
+			for (Index=0;Index < SIZE/2 ; Index++)
+			{
+				Real[Index]=Real[Index]*Real[Index]+Cplx[Index]*Cplx[Index];			
+				Real[Index]=Real[Index] / (SIZE * (2048));
 			}
-			else
-			{	
-				for (Index = 0; Index < LED_COUNT-1; Index++)
+			// Zero out the DC component
+			Real[0]=0;			
+			// Now average all of the frequency components into 16 bins i.e. 1 for each LED
+			for (Index = 0; Index < LED_COUNT; Index++)
+			{
+				FrequencyComponent = 0;
+				for (AverageIndex=0; AverageIndex < (SIZE/2) / LED_COUNT; AverageIndex ++)
 				{
-					writeDMABuffer(Index,InputBuffer1[Index]);
+					FrequencyComponent += Real[Index*((SIZE/2)/LED_COUNT)+AverageIndex];
 				}
-				fft(BLOCKSIZE,InputBuffer1,Cplx);
-			}
-			
+				// Do some scaling (trial and error)
+				Average = FrequencyComponent / 6000;				
+				// Poor man's colour map: Bits shifted up the GRB colour space according to magnitude
+				if (Average)
+					Average = 1 << (Average);
+				writeDMABuffer(Index,Average);
+			}			
 			DataReady = 0; // Signal completion of block processing
+			toc();
 		}
 	} 
 	return 0;
@@ -251,25 +268,19 @@ void initSysTick()
 }
 void SysTick()
 {
-// This should occur at a rate of Fs Hz.	
-	readADC();
-	InputBuffer[SysTickCounter]=((float)readADC()/2048.0f - 1.0f); // normalize the input signal
+// This should occur at a rate of Fs Hz.		
+	if (DataReady)
+		return; // don't move on to next batch until last batch done
+	InputBuffer[SysTickCounter]=readADC()-2048;
 	SysTickCounter++;
-	if (SysTickCounter == BLOCKSIZE)
-	{ 	// at the end of a block: swap the buffers around
-		if (InputBuffer==InputBuffer1)
-		{
-			InputBuffer=InputBuffer2;
-		}	
-		else
-		{
-			InputBuffer=InputBuffer1;
-		}
-		SysTickCounter  = 0;
+	if (SysTickCounter == SIZE)	
+	{ 	// If finished with block then set the DataReady flag
+		SysTickCounter  = 0;		
 		DataReady = 1;
-		// Now send out the bits to the SPI bus
-		writeSPI(DMABuffer,sizeof(DMABuffer));				
+		// Send out the bits to the SPI bus 
+		writeSPI(DMABuffer,sizeof(DMABuffer));						
 	}
+	
 }
 void initADC()
 {
@@ -304,4 +315,12 @@ int readADC()
 	ADC1_CR |= BIT2; // start conversion
 	while (ADC1_CR & BIT2); // wait for end of conversion
 	return ADC1_DR;
+}
+void tic()
+{
+	GPIOB_ODR |= BIT3;
+}
+void toc()
+{
+	GPIOB_ODR &= ~BIT3;
 }

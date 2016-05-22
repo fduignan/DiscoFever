@@ -5,7 +5,6 @@ Inspired by Dave Hale's FFTLab java program
 #include <math.h>
 #include "fft.h"
 // size of fft fixed at compile time - faster and safer than dynamically creating arrays at runtime.
-#define SIZE 128
 static float cos_array[SIZE];
 static float sine_array[SIZE];
 static long Initialized = 0;

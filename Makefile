@@ -5,7 +5,7 @@ AS=arm-none-eabi-as
 # Specity the linker to use
 LD=arm-none-eabi-gcc
 
-CCFLAGS=-mcpu=cortex-m4 -mthumb -g -mfloat-abi=hard -fsingle-precision-constant -mfpu=fpv4-sp-d16 -D ARM_MATH_CM4  -D __FPU_PRESENT=1
+CCFLAGS=-mcpu=cortex-m4 -mthumb -g -mfloat-abi=hard -fsingle-precision-constant -mfpu=fpv4-sp-d16 -D ARM_MATH_CM4  -D __FPU_PRESENT=1 -O3
 LDFLAGS=-mcpu=cortex-m4 -mthumb -g -mfloat-abi=hard -fsingle-precision-constant -mfpu=fpv4-sp-d16 -Xlinker --cref -Xlinker -Map=output.map
 # Tell the linker where to find the libraries -> important: use thumb versions 
 LIBSPEC=-L /usr/local/gcc-arm-none-eabi/lib/gcc/arm-none-eabi/5.3.1/armv7-m 
