@@ -4,7 +4,7 @@
 #include "fft.h"
 #define LED_COUNT 16
 #define Fs 32768
-unsigned SysTickCounter=0;
+volatile unsigned SysTickCounter=0;
 short InputBuffer[SIZE];
 float Real[SIZE];
 float Cplx[SIZE];
@@ -19,6 +19,7 @@ void initADC();
 int readADC();
 void tic(void);
 void toc(void);
+unsigned long getColourGradient(float Value,float Maximum);
 volatile int DataReady;
 uint8_t DMABuffer[LED_COUNT * 9]; // This will be used as a DMA Buffer for the SPI bus
 
@@ -44,7 +45,7 @@ int main()
 		eputLong(SysTickCounter);		
 		eputs("\r\n");  	    		
 		while(usart_tx_busy()); // wait for last Serial TX to finish
-		sleep(); // save power when idle
+		//sleep(); // save power when idle
 		if (DataReady)  // new block of data is ready
 		{
 			tic();
@@ -69,20 +70,16 @@ int main()
 			for (Index = 0; Index < LED_COUNT; Index++)
 			{
 				FrequencyComponent = 0;
-				for (AverageIndex=0; AverageIndex < (SIZE/2) / LED_COUNT; AverageIndex ++)
+				for (AverageIndex=0; AverageIndex < (SIZE/16) / LED_COUNT; AverageIndex ++)
 				{
-					FrequencyComponent += Real[Index*((SIZE/2)/LED_COUNT)+AverageIndex];
-				}
-				// Do some scaling (trial and error)
-				Average = FrequencyComponent / 6000;				
-				// Poor man's colour map: Bits shifted up the GRB colour space according to magnitude
-				if (Average)
-					Average = 1 << (Average);
-				writeDMABuffer(Index,Average);
-			}			
+					FrequencyComponent += Real[Index*((SIZE/16)/LED_COUNT)+AverageIndex];
+				}					
+				writeDMABuffer(Index,getColourGradient(FrequencyComponent,5000));
+				
+			}						
 			DataReady = 0; // Signal completion of block processing
 			toc();
-		}
+		}		
 	} 
 	return 0;
 }
@@ -205,6 +202,7 @@ void writeDMABuffer(int DeviceNumber, unsigned long Value)
 		Index++;		
 	}              
 }
+
 unsigned long getRainbow()
 {   // Cycle through the colours of the rainbow (non-uniform brightness however)
 	// Inspired by : http://academe.co.uk/2012/04/arduino-cycling-through-colours-of-the-rainbow/
@@ -253,6 +251,20 @@ unsigned long getRainbow()
 	}
 	return (Green << 16) + (Red << 8) + Blue;
 }
+// The following lookup table approximates a colour gradient ranging from blue to red.  It is encoded GGRRBB format to suit the WS2812's
+const unsigned long GRBColourGradient[]= {0,0xAF00E5,0xE301E6,0xE803B9,0xEA0488,0xEB0657,0xED0826,0xEF1E09,0xF1520B,0xF2860D,0xF4BB0E,0xF6EF10,0xCCF812,0x9BF914,0x6AFB16,0x39FD18,0x19FF2A};
+#define GRADIENT_STEPS (sizeof(GRBColourGradient)/sizeof(unsigned long))
+unsigned long getColourGradient(float Value,float Maximum)
+{
+	Value = GRADIENT_STEPS * Value / Maximum;
+	if (Value < 0)
+		Value = 0;
+	if (Value > GRADIENT_STEPS-1)
+		Value = GRADIENT_STEPS-1;
+	return GRBColourGradient[(int)Value];
+	
+}
+
 void latchWS2812B()
 {
 	delay(1000); // This is about 80us at this clock speed; enough to
@@ -269,6 +281,13 @@ void initSysTick()
 void SysTick()
 {
 // This should occur at a rate of Fs Hz.		
+	static int DMA_UpdateCount = 0;
+	if (DMA_UpdateCount++ > 40)
+	{
+		writeSPI(DMABuffer,sizeof(DMABuffer));		
+		DMA_UpdateCount = 0;
+
+	}
 	if (DataReady)
 		return; // don't move on to next batch until last batch done
 	InputBuffer[SysTickCounter]=readADC()-2048;
@@ -278,8 +297,9 @@ void SysTick()
 		SysTickCounter  = 0;		
 		DataReady = 1;
 		// Send out the bits to the SPI bus 
-		writeSPI(DMABuffer,sizeof(DMABuffer));						
+		
 	}
+	
 	
 }
 void initADC()
